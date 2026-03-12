@@ -25,7 +25,7 @@ class Drone:
     def set_velocity(self,
                           vx: float, vy: float, vz: float,
                           yaw_rate: float):
-        return mavsdk.set_velocity_body(self.drone, vx, vy, vz, yaw_rate)
+        return mavsdk.set_velocity_body(self.drone, vx, vy, -vz, yaw_rate)
     def release(self):
         self.drone.disconnect()
         self.lidar.stop()
