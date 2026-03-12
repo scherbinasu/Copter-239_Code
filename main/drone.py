@@ -20,7 +20,7 @@ class Drone:
         return self.lidar.get_scan()
     def land(self):
         return mavsdk.land(self.drone)
-    def takeoff(self, n:float):
+    def takeoff(self, n: float = 1.0):
         return mavsdk.takeoff_n_meters(self.drone, n)
     def set_velocity(self,
                           vx: float, vy: float, vz: float,
