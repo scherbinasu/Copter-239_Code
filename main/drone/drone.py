@@ -1,8 +1,15 @@
+
+import sys
+from pathlib import Path
+import asyncio
+
+# Добавляем текущую директорию в sys.path
+sys.path.append(str(Path(__file__).parent))  # Теперь указываем только родительскую директорию
+
 from control.abstractions import *
 import control.mavsdk.mavsdk as mavsdk
 import control.camera.camera as camera
 import control.lidar.ms200k.oradar_lidar as lidar
-import asyncio
 class Drone:
     def __init__(self):
         self.lidar = lidar.LidarReader()
