@@ -3,7 +3,7 @@ import os
 import socket
 import subprocess
 import time
-
+import asyncio
 from mavsdk import System
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed
 
@@ -37,7 +37,7 @@ def ensure_server_running(server_path: str,
         raise FileNotFoundError(f"Исполняемый файл не найден: {server_path}")
 
     print(f"🚀 Запускаем mavsdk_server из {server_path}...")
-    cmd = [server_path]
+    cmd = [server_path] + ['-p', str(port), '--verbose']
     if connection_url:
         cmd.append(connection_url)
 
@@ -57,12 +57,19 @@ def ensure_server_running(server_path: str,
 
 
 async def takeoff_n_meters(drone: System, n: float):
-    """
-    Взлетает на высоту n метров и ждёт, пока высота не будет достигнута.
-    """
+    """Взлетает на высоту n метров и ждёт, пока высота не будет достигнута."""
+    # Убедимся, что дрон вооружён
+    async for armed in drone.telemetry.armed():
+        if not armed:
+            raise RuntimeError("Дрон не вооружён, взлёт невозможен")
+        break
+    # Небольшая пауза для стабилизации
+    await asyncio.sleep(1)
+
     print(f"Взлетаем на {n} метров...")
     await drone.action.set_takeoff_altitude(n)
     await drone.action.takeoff()
+    # ... остальное
 
     async for position in drone.telemetry.position():
         current_alt = position.relative_altitude_m

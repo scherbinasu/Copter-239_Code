@@ -7,10 +7,13 @@ async def main():
     import drone.drone as drone
     drone = drone.Drone()
     await drone.start()
-    print(drone.get_scan())
     await drone.arm()
-    await asyncio.sleep(0.25)
-    await drone.disarm()
+    await asyncio.sleep(1)
+    await drone.set_velocity(vz=1)
+    await asyncio.sleep(1)
+    await drone.set_velocity(vx=2)
+    await asyncio.sleep(2)
+    await drone.land()
 
 
 

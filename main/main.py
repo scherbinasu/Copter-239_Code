@@ -1,18 +1,18 @@
-from time import sleep
-
-import asyncio
-
+from drone.drone import *
 
 async def main():
     import drone.drone as drone
     drone = drone.Drone()
     await drone.start()
-    print(drone.get_scan())
     await drone.arm()
-    await asyncio.sleep(0.25)
-    await drone.disarm()
+    await drone.sleep(0.5)
+    await drone.takeoff(1.5)
+    while True:
+        frame = drone.get_frame()
+        scan = drone.get_scan()
 
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
