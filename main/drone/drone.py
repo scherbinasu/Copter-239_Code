@@ -42,7 +42,7 @@ class Drone:
     async def release(self):
         await self.drone.close()
         self.lidar.stop()
-        # self.camera.release()
+        self.camera.release()
 
     async def set_param(self, name: str, value: int | float, retries: int = 2):
         """Устанавливает параметр автопилота с повторными попытками."""

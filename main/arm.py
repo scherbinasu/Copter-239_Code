@@ -1,5 +1,5 @@
-from time import sleep
-
+from time import time
+start_time = time()
 import asyncio
 
 
@@ -7,7 +7,8 @@ async def main():
     import drone.drone as drone
     drone = drone.Drone()
     await drone.start()
-    print(drone.get_scan())
+    print(time() - start_time)
+    print(drone.get_scan().tolist())
     await drone.arm()
     await asyncio.sleep(0.25)
     await drone.disarm()

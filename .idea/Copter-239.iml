@@ -5,7 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/main" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.13 (Copter-239)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.13.7 (sftp://ubuntu@10.239.239.239:22/usr/bin/python3)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

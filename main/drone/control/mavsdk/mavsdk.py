@@ -41,9 +41,7 @@ def ensure_server_running(server_path: str,
     if connection_url:
         cmd.append(connection_url)
 
-    proc = subprocess.Popen(cmd,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(cmd)
 
     start_time = time.time()
     while time.time() - start_time < timeout:

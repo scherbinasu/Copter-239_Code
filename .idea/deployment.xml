@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="ubuntu@10.239.239.239:22 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="ubuntu@10.239.239.239:22 agent" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
-      <paths name="ubuntu@10.239.239.239:22 password">
+      <paths name="ubuntu@10.239.239.239:22 agent">
         <serverdata>
           <mappings>
             <mapping deploy="/home/ubuntu" local="$PROJECT_DIR$" />
