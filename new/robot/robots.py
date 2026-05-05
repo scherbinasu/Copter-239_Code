@@ -7,6 +7,7 @@ import numpy as np
 sys.path.append(str(Path(__file__).parent))  # Теперь указываем только родительскую директорию
 
 from control.abstractions import *
+
 import control.mavsdk.mavsdk as mavsdk
 import control.camera.camera as camera
 import control.lidar.ms200k.oradar_lidar as lidar
@@ -19,6 +20,7 @@ class Drone:
     SCAN_PIXELS_PER_METER = SCAN_IMAGE_SIZE / SCAN_MAP_SIZE_M
     SCAN_CENTER = (SCAN_IMAGE_SIZE // 2, SCAN_IMAGE_SIZE // 2)
     def __init__(self):
+
         self.lidar = lidar.LidarReader()
         self.camera = camera.HardCamera()
         self.web = webGUI.WebGUI()
@@ -34,7 +36,6 @@ class Drone:
         img = self.camera.get_frame()
         self.web.imshow('raw', img)
         return img
-
     def draw_scan_hsv(self, img, scan):
         """
         Векторизованное рисование скана в HSV (цветной круг).
