@@ -1,6 +1,7 @@
 import time
 from oradar_lidar import LidarReader
 import numpy as np
+import cv2
 def main():
     reader = LidarReader(port='/dev/ttyUSB0')
     try:
@@ -10,6 +11,8 @@ def main():
             i += 1
             scan = reader.get_scan()
             if scan is not None:
+                bw = np.zeros(scan.shape, dtype=np.uint8)
+                bw = bw[:, :, (scan['angle'], scan['distance'], scan['intensity'])]
                 print(f"Скан {i}: {len(scan)} точек, среднее расстояние {scan['distance'].mean():.3f} м")
                 print(f'{np.array(scan["distance"].tolist()[:10]+scan["distance"].tolist()[-10:]).mean():.3f}')
             else:
