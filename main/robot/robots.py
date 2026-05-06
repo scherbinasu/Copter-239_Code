@@ -32,6 +32,48 @@ class Drone:
         self.lidar.start()
         self.web.start()
         self.camera.start()
+        self.telemetry = self.drone.telemetry
+        self.offboard = self.drone.offboard
+
+    def get_contour_points(self, scan):
+        """
+        Возвращает массив (N,2) пиксельных координат, упорядоченных по углу,
+        для построения замкнутого контура. Точки с dist < 0.1 отбрасываются.
+        """
+        if len(scan) == 0:
+            return np.empty((0, 2), dtype=np.int32)
+
+        angles = scan['angle'] % 360.0
+        dists = scan['distance']
+        valid = dists >= 0.1
+        if not np.any(valid):
+            return np.empty((0, 2), dtype=np.int32)
+
+        angles = angles[valid]
+        dists = dists[valid]
+
+        # Сортировка по углу (как при сканировании)
+        sort_idx = np.argsort(angles)
+        angles = angles[sort_idx]
+        dists = dists[sort_idx]
+
+        # Преобразование в декартовы координаты (с зеркалированием, как в основном коде)
+        theta = np.deg2rad(angles)
+        x_m = dists * np.cos(theta)
+        y_m = dists * np.sin(theta)
+
+        x_px = self.SCAN_CENTER[0] + (x_m * self.SCAN_PIXELS_PER_METER)
+        y_px = self.SCAN_CENTER[1] + (y_m * self.SCAN_PIXELS_PER_METER)
+        x_idx = np.round(x_px).astype(int)
+        y_idx = np.round(y_px).astype(int)
+
+        # Оставляем только точки в пределах изображения
+        in_bounds = (x_idx >= 0) & (x_idx < self.SCAN_IMAGE_SIZE) & (y_idx >= 0) & (y_idx < self.SCAN_IMAGE_SIZE)
+        x_idx = x_idx[in_bounds]
+        y_idx = y_idx[in_bounds]
+
+        return np.column_stack([x_idx, y_idx]).astype(np.int32)
+
     def get_frame(self):
         img = self.camera.get_frame()
         self.web.imshow('raw', img)
@@ -90,6 +132,36 @@ class Drone:
         return mavsdk.land(self.drone)
     def takeoff(self, n: float = 1.0):
         return mavsdk.takeoff_n_meters(self.drone, n)
+    async def ascent(self, n: float = 1.0):
+        async for pos_vel in self.telemetry.position_velocity_ned():
+            current_position_ned = pos_vel.position
+            start_north = current_position_ned.north_m
+            start_east = current_position_ned.east_m
+            target_down = -n
+            await self.offboard.set_position_ned(
+                mavsdk.PositionNedYaw(start_north, start_east, target_down, 0)
+            )
+
+            await self.offboard.start()
+            print("Offboard запущен")
+
+            # 3. Армим двигатели
+            print("-- Арминг")
+            await self.drone.action.arm()
+            break
+
+        # 4. Ждём, пока дрон наберёт высоту (разница down меньше 0.1 м)
+        print(f"-- Взлёт до {n} метров")
+        async for pos_vel in self.telemetry.position_velocity_ned():
+            current_position_ned = pos_vel.position
+            await self.offboard.set_position_ned(
+                mavsdk.PositionNedYaw(start_north, start_east, target_down, 0)
+            )
+            altitude_error = abs(current_position_ned.down_m - target_down)
+            if altitude_error < 0.1:
+                print("Высота достигнута")
+                break
+            await asyncio.sleep(0.1)
     async def arm(self):
         return await self.drone.action.arm()
     async def disarm(self):
