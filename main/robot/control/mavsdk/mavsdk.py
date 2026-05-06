@@ -5,8 +5,8 @@ import subprocess
 import time
 import asyncio
 from mavsdk import System
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed
-
+from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, PositionNedYaw
+from mavsdk.telemetry import PositionVelocityNed, EulerAngle
 
 def is_port_open(host: str = "localhost", port: int = 50051) -> bool:
     """Проверяет, отвечает ли указанный порт (может использоваться сервером)."""
