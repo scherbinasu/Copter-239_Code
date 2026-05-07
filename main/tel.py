@@ -5,10 +5,6 @@
 """
 
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
 import asyncio
 import math
 from mavsdk import System

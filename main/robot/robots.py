@@ -146,7 +146,10 @@ class Drone:
         return await mavsdk.takeoff_n_meters(self.drone, n)
 
     async def ascent(self, n: float = 1.0):
+        # current_position_ned = mavsdk.PositionVelocityNed(None, None)  # north, east, down
+        # current_attitude_euler = mavsdk.EulerAngle(0.0, 0.0, 0.0, timestamp_us=5.0)
         async for pos_vel in self.telemetry.position_velocity_ned():
+            print(pos_vel)
             current_position_ned = pos_vel.position
             start_north = current_position_ned.north_m
             start_east = current_position_ned.east_m
@@ -188,6 +191,13 @@ class Drone:
     async def set_velocity(self,
                            vx: float = 0, vy: float = 0, vz: float = 0,
                            yaw_rate: float = 0):
+        """
+           Переключает дрон в режим OFFBOARD и задаёт желаемые скорости в теле дрона.
+           vx : вперёд (+) / назад (–)   [м/с]
+           vy : вправо (+) / влево (–)    [м/с]
+           vz : вниз (+) / вверх (–)      [м/с]   (в NED вниз – положительно)
+           yaw_rate : скорость вращения вокруг вертикальной оси [рад/с]
+        """
         return await mavsdk.set_velocity_body(self.drone, vx, vy, -vz, yaw_rate)
 
     async def release(self):
