@@ -1,17 +1,17 @@
-
+import asyncio
 import sys
 from pathlib import Path
-import asyncio
+
 import numpy as np
+
 # Добавляем текущую директорию в sys.path
 sys.path.append(str(Path(__file__).parent))  # Теперь указываем только родительскую директорию
-
-from control.abstractions import *
 
 import control.mavsdk.mavsdk as mavsdk
 import control.camera.camera as camera
 import control.lidar.ms200k.oradar_lidar as lidar
 import control.web.webGUI as webGUI
+
 
 class Drone:
     SCAN_WINDOW_NAME = "Lidar Scan"
@@ -19,6 +19,7 @@ class Drone:
     SCAN_MAP_SIZE_M = 20.0
     SCAN_PIXELS_PER_METER = SCAN_IMAGE_SIZE / SCAN_MAP_SIZE_M
     SCAN_CENTER = (SCAN_IMAGE_SIZE // 2, SCAN_IMAGE_SIZE // 2)
+
     def __init__(self):
 
         self.lidar = lidar.LidarReader()
@@ -26,7 +27,8 @@ class Drone:
         self.web = webGUI.WebGUI()
 
     async def start(self):
-        mavsdk.ensure_server_running('/home/ubuntu/main/robot/control/mavsdk/mavsdk_server', "serial:///dev/ttyACM0:115200")
+        mavsdk.ensure_server_running('/home/ubuntu/main/robot/control/mavsdk/mavsdk_server',
+                                     "serial:///dev/ttyACM0:115200")
         self.drone = mavsdk.System(mavsdk_server_address="localhost", port=50051)
         await self.drone.connect(system_address="serial:///dev/ttyACM0:115200")
         self.lidar.start()
@@ -43,7 +45,7 @@ class Drone:
         if len(scan) == 0:
             return np.empty((0, 2), dtype=np.int32)
 
-        angles = scan['angle'] % 360.0
+        angles = (scan['angle']+180) % 360.0
         dists = scan['distance']
         valid = dists >= 0.1
         if not np.any(valid):
@@ -78,6 +80,7 @@ class Drone:
         img = self.camera.get_frame()
         self.web.imshow('raw', img)
         return img
+
     def draw_scan_hsv(self, img, scan):
         """
         Векторизованное рисование скана в HSV (цветной круг).
@@ -87,7 +90,7 @@ class Drone:
             return
 
         # --- фильтрация и преобразование координат ---
-        angles = (scan['angle'] + 0) % 360.0  # поворот на 0° (оставили как было)
+        angles = (scan['angle'] + 180) % 360.0  # поворот на 0° (оставили как было)
         dists = scan['distance']
         intensities = scan['intensity']
         valid = dists >= 0.1
@@ -124,14 +127,24 @@ class Drone:
 
         # назначаем пиксели в HSV-изображении
         img[y_idx, x_idx] = np.stack([h, s, v], axis=1)
+        x_center, y_center = self.SCAN_CENTER
+        half = int(self.SCAN_PIXELS_PER_METER * 0.2)
+        img[y_center - half: y_center + half, x_center - half:x_center + half] = (255, 255, 255)
+
     def get_scan(self):
         scan = self.lidar.get_scan()
-        self.web.imshow('scan', self.draw_scan_hsv(np.zeros((self.SCAN_IMAGE_SIZE, self.SCAN_IMAGE_SIZE, 3), dtype=np.uint8), scan))
+        img = np.zeros((self.SCAN_IMAGE_SIZE, self.SCAN_IMAGE_SIZE, 3), dtype=np.uint8)
+        self.draw_scan_hsv(img, scan)
+        if not img is None:
+            self.web.imshow('scan', img)
         return scan
-    def land(self):
-        return mavsdk.land(self.drone)
-    def takeoff(self, n: float = 1.0):
-        return mavsdk.takeoff_n_meters(self.drone, n)
+
+    async def land(self):
+        return await mavsdk.land(self.drone)
+
+    async def takeoff(self, n: float = 1.0):
+        return await mavsdk.takeoff_n_meters(self.drone, n)
+
     async def ascent(self, n: float = 1.0):
         async for pos_vel in self.telemetry.position_velocity_ned():
             current_position_ned = pos_vel.position
@@ -162,20 +175,32 @@ class Drone:
                 print("Высота достигнута")
                 break
             await asyncio.sleep(0.1)
+
     async def arm(self):
         return await self.drone.action.arm()
+
     async def disarm(self):
         return await self.drone.action.disarm()
+
     async def sleep(self, delay):
         await asyncio.sleep(delay)
-    def set_velocity(self,
-                          vx: float = 0, vy: float = 0, vz: float = 0,
-                          yaw_rate: float = 0):
-        return mavsdk.set_velocity_body(self.drone, vx, vy, -vz, yaw_rate)
+
+    async def set_velocity(self,
+                           vx: float = 0, vy: float = 0, vz: float = 0,
+                           yaw_rate: float = 0):
+        return await mavsdk.set_velocity_body(self.drone, vx, vy, -vz, yaw_rate)
+
     async def release(self):
-        await self.drone.close()
+        # await self.drone.close()
         self.lidar.stop()
         self.camera.release()
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.release()
 
     async def set_param(self, name: str, value: int | float, retries: int = 2):
         """Устанавливает параметр автопилота с повторными попытками."""
@@ -212,8 +237,3 @@ class Drone:
                 print("Таймаут ожидания готовности дрона.")
                 return False
             await asyncio.sleep(0.5)
-
-
-
-
-
