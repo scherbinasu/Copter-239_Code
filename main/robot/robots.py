@@ -1,7 +1,10 @@
 import asyncio
 import sys
+import traceback
 from pathlib import Path
-
+import os
+import selectors
+os.environ['GRPC_POLL_STRATEGY'] = 'poll'
 import numpy as np
 
 # Добавляем текущую директорию в sys.path
@@ -26,15 +29,19 @@ class Drone:
         self.web = webGUI.WebGUI()
 
     async def start(self):
-        mavsdk.ensure_server_running('/home/ubuntu/main/robot/control/mavsdk/mavsdk_server',
-                                     "serial:///dev/ttyACM0:115200")
-        self.drone = mavsdk.System(mavsdk_server_address="localhost", port=50051)
-        await self.drone.connect(system_address="serial:///dev/ttyACM0:115200")
-        self.lidar.start()
-        self.web.start()
-        self.camera.start()
-        self.telemetry = self.drone.telemetry
-        self.offboard = self.drone.offboard
+        print("Starting Drone")
+        try:
+            mavsdk.ensure_server_running('/home/ubuntu/main/robot/control/mavsdk/mavsdk_server',
+                                         "serial:///dev/ttyACM0:115200")
+            self.drone = mavsdk.System(mavsdk_server_address="localhost", port=50051)
+            await self.drone.connect(system_address="serial:///dev/ttyACM0:115200")
+            self.lidar.start()
+            self.web.start()
+            self.camera.start()
+            self.telemetry = self.drone.telemetry
+            self.offboard = self.drone.offboard
+        except Exception as e:
+            traceback.print_exc()
 
     def get_contour_points(self, scan):
         """
@@ -89,7 +96,7 @@ class Drone:
             return
 
         # --- фильтрация и преобразование координат ---
-        angles = (scan['angle'] + 180) % 360.0  # поворот на 0° (оставили как было)
+        angles = (scan['angle']+90) % 360.0  # поворот на 0° (оставили как было)
         dists = scan['distance']
         intensities = scan['intensity']
         valid = dists >= 0.1
@@ -100,7 +107,7 @@ class Drone:
         # полярные -> декартовы (с уже имеющимся у вас зеркалированием)
         theta = np.deg2rad(angles)
         x_m = dists * np.cos(theta)
-        y_m = dists * np.sin(theta)
+        y_m = dists * -np.sin(theta)
 
         x_px = self.SCAN_CENTER[0] + (x_m * self.SCAN_PIXELS_PER_METER)
         y_px = self.SCAN_CENTER[1] + (y_m * self.SCAN_PIXELS_PER_METER)
