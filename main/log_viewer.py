@@ -1,7 +1,8 @@
+import base64
+import pickle
+import math
 import cv2
 import numpy as np
-import pickle
-import base64
 
 SCAN_WINDOW_NAME = "Lidar Scan"
 SCAN_IMAGE_SIZE = 800
@@ -9,6 +10,113 @@ SCAN_MAP_SIZE_M = 20.0
 SCAN_PIXELS_PER_METER = SCAN_IMAGE_SIZE / SCAN_MAP_SIZE_M
 SCAN_CENTER = (SCAN_IMAGE_SIZE // 2, SCAN_IMAGE_SIZE // 2)
 
+
+def groups_first_last(groups):
+    """
+    Принимает список массивов (каждый формы (k, D)) и возвращает
+    np.ndarray формы (G, 2, D) из первых и последних точек каждой группы.
+
+    Параметры
+    ----------
+    groups : list of np.ndarray
+        Каждый элемент — массив точек (k_i, D). Все D должны совпадать.
+
+    Возвращает
+    -------
+    result : np.ndarray (G, 2, D)
+        Для каждой группы: [первая_точка, последняя_точка].
+        Если группа пуста, обе точки заполняются np.nan.
+    """
+    if not groups:
+        return np.empty((0, 2, 0))
+
+    # Определяем размерность точек по первой непустой группе
+    D = next(g.shape[1] for g in groups if g.size > 0)
+    G = len(groups)
+
+    # Создаём выходной массив, заполненный NaN
+    result = np.full((G, 2, D), np.nan)
+
+    for i, g in enumerate(groups):
+        if len(g) > 0:
+            result[i, 0] = g[0]      # первая
+            result[i, 1] = g[-1]     # последняя
+        # если группа пуста — останутся nan
+
+    return result
+def nearest_from_other_group(groups):
+    """
+    Для каждой точки в groups (формы (G,2,D)) ищет ближайшую точку,
+    принадлежащую другой группе.
+
+    Параметры
+    ----------
+    groups : np.ndarray (G, 2, D)
+
+    Возвращает
+    -------
+    nearest_idx : np.ndarray (2G,)
+        Индексы ближайших точек в общем массиве points = groups.reshape(-1, D).
+    distances : np.ndarray (2G,)
+        Евклидовы расстояния до этих точек.
+    """
+    G, _, D = groups.shape
+    points = groups.reshape(-1, D)       # (N, D), где N = 2G
+    N = 2 * G
+
+    # Попарные расстояния (векторизация через broadcasting)
+    diff = points[:, np.newaxis, :] - points[np.newaxis, :, :]   # (N, N, D)
+    dists = np.linalg.norm(diff, axis=2)                         # (N, N)
+
+    # Маска: True, если точки i и j из одной группы
+    group_ids = np.arange(N) // 2               # [0,0,1,1,2,2,...]
+    same_group = group_ids[:, np.newaxis] == group_ids[np.newaxis, :]  # (N, N)
+
+    # Исключаем себя и партнёра по группе, заменяя расстояние на ∞
+    dists_masked = np.where(same_group, np.inf, dists)
+
+    # Ближайший сосед
+    nearest_idx = np.argmin(dists_masked, axis=1)  # (N,)
+    distances = dists[np.arange(N), nearest_idx]   # из исходных dists
+
+    return nearest_idx, distances
+def farthest_within_limit(pts, a, n):
+    """
+    Возвращает точку из pts, максимально удалённую от a, но не дальше n.
+
+    Параметры
+    ----------
+    pts : np.ndarray (N, D)
+        Массив точек.
+    a : array_like (D,)
+        Опорная точка.
+    n : float > 0
+        Максимально допустимое расстояние.
+
+    Возвращает
+    -------
+    index : int или None
+    point : np.ndarray или None
+    distance : float или None
+        Если ни одна точка не удовлетворяет условию dist <= n, возвращаются None.
+    """
+    pts = np.asarray(pts, dtype=float)
+    a = np.asarray(a, dtype=float)
+
+    dists = np.linalg.norm(pts - a, axis=1)
+
+    # Маска точек в пределах радиуса n
+    valid = dists <= n
+    if not np.any(valid):
+        return None, None, None
+
+    # Индексы подходящих точек
+    valid_indices = np.where(valid)[0]
+    # Ищем точку с максимальным расстоянием среди них
+    idx_of_max = np.argmax(dists[valid_indices])
+    best_idx = valid_indices[idx_of_max]
+
+    return best_idx, pts[best_idx], dists[best_idx]
 
 def get_contour_points(scan):
     """
@@ -18,7 +126,7 @@ def get_contour_points(scan):
     if len(scan) == 0:
         return np.empty((0, 2), dtype=np.int32)
 
-    angles = (scan['angle']+180) % 360.0
+    angles = (scan['angle'] + 180) % 360.0
     dists = scan['distance']
     valid = dists >= 0.1
     if not np.any(valid):
@@ -117,12 +225,65 @@ def parse_line(line):
     return data, t
 
 
+def intersection_of_regression_lines(points_arr1, points_arr2, tol=1e-10):
+    """
+    Вычисляет точку пересечения двух прямых, аппроксимирующих два набора точек
+    методом наименьших квадратов (линейная регрессия).
+
+    Параметры
+    ----------
+    points_arr1 : array
+        Координаты точек первой линии.
+    points_arr2 : array
+        Координаты точек второй линии.
+    tol : float, опционально
+        Допуск для проверки равенства угловых коэффициентов (по умолчанию 1e-10).
+
+    Возвращает
+    -------
+    result : tuple
+        кортеж (x, y) – координаты пересечения.
+        Если прямые параллельны и не совпадают, значение None.
+
+    Пример
+    -------
+    > points1 = np.array([[1, 2.1], [2, 3.8], [3, 6.2], [4, 7.9], [5, 10.1]])
+    > points2 = np.array([[1, 10.0], [2, 8.2], [3, 6.1], [4, 4.3], [5, 2.0]])
+    > res = intersection_of_regression_lines(points1, points2)
+    > print(res)
+    """
+    # Преобразуем входные данные в numpy массивы
+    x1, y1 = points_arr1[:, 0], points_arr1[:, 1]
+    x2, y2 = points_arr2[:, 0], points_arr2[:, 1]
+
+    # --- 1. Линейная регрессия для каждой группы точек ---
+    # np.polyfit(x, y, 1) возвращает [наклон, сдвиг]
+    a1, b1 = np.polyfit(x1, y1, 1)
+    a2, b2 = np.polyfit(x2, y2, 1)
+
+    # --- 2. Проверка параллельности и совпадения ---
+    if np.isclose(a1, a2, atol=tol):
+        if np.isclose(b1, b2, atol=tol):
+            # Прямые совпадают
+            return None
+        else:
+            # Параллельны, но не совпадают
+            return None
+
+    # --- 3. Расчёт точки пересечения ---
+    # Решаем уравнение a1*x + b1 = a2*x + b2
+    x_int = (b2 - b1) / (a1 - a2)
+    y_int = a1 * x_int + b1
+
+    return np.array([x_int, y_int])
+
+
 def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
     """
     Кластеризует точки лидара. Возвращает список массивов (k,2) с декартовыми
     координатами в МЕТРАХ (x, y) относительно центра сканирования.
     """
-    angles = scan['angle']
+    angles = (scan['angle']+90) % 360.0
     dists = scan['distance']
     valid = dists >= 0.01
     ang = angles[valid]
@@ -135,19 +296,19 @@ def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
     clusters = []
     start = 0
     # Синусы и косинусы для всех углов
-    cos_a = np.cos(np.deg2rad(ang))
     sin_a = np.sin(np.deg2rad(ang))
+    cos_a = np.cos(np.deg2rad(ang))
 
     for i in range(1, n):
         # Расстояние между лучами по теореме косинусов
         d_sq = (dst[i] ** 2 + dst[i - 1] ** 2
-                - 2 * dst[i] * dst[i - 1] * (cos_a[i] * cos_a[i - 1] + sin_a[i] * sin_a[i - 1]))
+                - 2 * dst[i] * dst[i - 1] * (sin_a[i] * sin_a[i - 1] + cos_a[i] * cos_a[i - 1]))
         if d_sq >= distance_threshold ** 2:
             if i - start >= min_cluster_size:
                 # Декартовы координаты в метрах (без SCAN_CENTER)
                 pts = np.column_stack((
-                    dst[start:i] * cos_a[start:i],
-                    dst[start:i] * sin_a[start:i]
+                    dst[start:i] * sin_a[start:i],
+                    dst[start:i] * cos_a[start:i]
                 ))
                 clusters.append(pts)
             start = i
@@ -155,8 +316,8 @@ def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
     # Последний кластер
     if n - start >= min_cluster_size:
         pts = np.column_stack((
-            dst[start:n] * cos_a[start:n],
-            dst[start:n] * sin_a[start:n]
+            dst[start:n] * sin_a[start:n],
+            dst[start:n] * cos_a[start:n]
         ))
         clusters.append(pts)
 
@@ -166,7 +327,7 @@ def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
 def cluster_to_pixels(cluster):
     """Переводит кластер (N,2) в метрах в пиксельные координаты изображения."""
     x_px = SCAN_CENTER[0] + cluster[:, 0] * SCAN_PIXELS_PER_METER
-    y_px = SCAN_CENTER[1] + cluster[:, 1] * SCAN_PIXELS_PER_METER
+    y_px = SCAN_CENTER[1] - cluster[:, 1] * SCAN_PIXELS_PER_METER
     return np.column_stack((x_px, y_px))
 
 
@@ -197,36 +358,120 @@ def get_cluster_extremes(cluster):
     idx_max = np.argmax(adjusted)
     return cluster[idx_min].copy(), cluster[idx_max].copy()
 
+def find_triangle_angles(p1, p2):
+    # Вычисляем длины катетов
+    x1, y1 = p1
+    x2, y2 = p2
+    dx = x2 - x1
+    dy = y2 - y1
+    angle1 = math.degrees(math.atan2(dy, dx))  # Угол при точке (x1, y1)
+    return (angle1+180) % 180
+def solve_sas(b, c, alpha):
+    """
+    Решает треугольник по двум сторонам и углу между ними (SAS).
+
+    Аргументы:
+        b, c: длины известных сторон (float > 0)
+        alpha: угол между b и c в радианах (0 < alpha < π)
+
+    Возвращает:
+        (a, beta, gamma): сторона a и углы beta (напротив b),
+                          gamma (напротив c) в радианах.
+    """
+    # Сторона a по теореме косинусов
+    a = math.sqrt(b * b + c * c - 2 * b * c * math.cos(alpha))
+
+    # Угол beta по теореме косинусов (однозначно)
+    beta = math.acos((a * a + c * c - b * b) / (2 * a * c))
+
+    # Угол gamma из суммы углов треугольника
+    gamma = math.pi - alpha - beta
+
+    return a, beta, gamma
+
+
+def angle_wall(scan, angle, range_angle):
+    # центральный луч (ближайший к angle)
+    idx_center = np.abs(scan['angle'] - angle).argmin()
+    nearest = scan['distance'][idx_center]
+    nearest_angle = scan['angle'][idx_center]  # фактический угол центра
+
+    # левый сектор
+    left_mask = (scan['angle'] >= angle - range_angle / 2) & (scan['angle'] < angle)
+    left_dists = scan['distance'][left_mask]
+    if len(left_dists) == 0:
+        left_med, left_angle_med = np.nan, np.nan
+    else:
+        left_med = np.median(left_dists)
+        # находим индекс в left_dists с расстоянием, ближайшим к медиане
+        idx_left_in_masked = np.argmin(np.abs(left_dists - left_med))
+        left_angles = scan['angle'][left_mask]
+        left_angle_med = left_angles[idx_left_in_masked]
+
+    # правый сектор
+    right_mask = (scan['angle'] > angle) & (scan['angle'] <= angle + range_angle / 2)
+    right_dists = scan['distance'][right_mask]
+    if len(right_dists) == 0:
+        right_med, right_angle_med = np.nan, np.nan
+    else:
+        right_med = np.median(right_dists)
+        idx_right_in_masked = np.argmin(np.abs(right_dists - right_med))
+        right_angles = scan['angle'][right_mask]
+        right_angle_med = right_angles[idx_right_in_masked]
+    # print(left_med, left_angle_med, right_med, right_angle_med)
+    a, beta_rad, gamma_rad = solve_sas(float(left_med), float(right_med),
+                                       float(math.radians(abs(left_angle_med - right_angle_med))))
+    wall_angle_raw = math.degrees(beta_rad) - math.degrees(gamma_rad)
+    wall_angle = wall_angle_raw + angle - nearest_angle
+    return wall_angle, wall_angle_raw, nearest
+
 
 def main():
-    t = 0
+    # t = 0
     with open('lidar_log.txt', 'rb') as f:
         for i in f.readlines():
             data, new_t = parse_line(i)
-            key = cv2.waitKey(round((new_t - t) * 1000))
+            key = cv2.waitKey(10)
             scan, img = get_scan(data)
-            clusters = cluster_lidar_points_v2(scan, distance_threshold=0.35, min_cluster_size=5)
-            print(f"Найдено кластеров: {len(clusters)}")
-            for idx, cl in enumerate(clusters):
-                left, right = get_cluster_extremes(cl)
-                print(f"  Кластер {idx}: размер {len(cl)}, "
-                      f"левая граница (x={left[0]:.2f}м, y={left[1]:.2f}м), "
-                      f"правая граница (x={right[0]:.2f}м, y={right[1]:.2f}м)")
+            wall_angle, wall_angle_raw, nearest = angle_wall(scan, 180, 45)
+            clusters = cluster_lidar_points_v2(scan, 0.2, 5)
 
-                # Перевод в пиксели для рисования
-                cl_px = cluster_to_pixels(cl).astype(np.int32)
-                cv2.polylines(img, [cl_px], False, (255, 0, 255), 2)
-
-                left_px = cluster_to_pixels(left.reshape(1, -1)).astype(np.int32)[0]
-                right_px = cluster_to_pixels(right.reshape(1, -1)).astype(np.int32)[0]
-                cv2.circle(img, tuple(left_px), 5, (255, 0, 0), -1)
-                cv2.circle(img, tuple(right_px), 5, (255, 0, 0), -1)
+            edge = groups_first_last(clusters)
+            nearest_idx, dists = nearest_from_other_group(edge)
+            points = cluster_to_pixels(edge.reshape(-1, 2))
+            print()
+            tmp_old_points_dual_del = []
+            for i in range(len(points)):
+                if abs(dists[i]-0.7) < 0.1 and not (i, nearest_idx[i]) in tmp_old_points_dual_del:
+                    tmp_old_points_dual_del.append((nearest_idx[i], i))
+                    print(f"Точка {i} {points[i]} -> "
+                          f"ближайшая {nearest_idx[i]} {points[nearest_idx[i]]}, "
+                          f"расстояние = {dists[i]:.3f}")
+                    max_p1 = farthest_within_limit(cluster_to_pixels(clusters[i//2]), points[i], 0.1*SCAN_PIXELS_PER_METER)[1]
+                    max_p2 = farthest_within_limit(cluster_to_pixels(clusters[nearest_idx[i]//2]), points[nearest_idx[i]], 0.15*SCAN_PIXELS_PER_METER)[1]
+                    base_angle = find_triangle_angles(points[i], points[nearest_idx[i]])
+                    dist_p1 = math.dist(max_p1, points[i])
+                    dist_p2 = math.dist(max_p2, points[nearest_idx[i]])
+                    norm_dist = (dist_p2-dist_p1)/(dist_p1+dist_p2)
+                    angle1 = find_triangle_angles(max_p1, points[i])
+                    angle2 = find_triangle_angles(max_p2, points[nearest_idx[i]])
+                    mind_angle = (base_angle + angle1 + angle2)/3
+                    mind_mind_angle = sum([abs(base_angle-mind_angle), abs(angle1-mind_angle), abs(angle2-mind_angle)])/3
+                    print(mind_angle, mind_mind_angle, norm_dist)
+                    if mind_mind_angle < 5 and norm_dist < 0.35:
+                        cv2.line(img, points[i].astype(int), points[nearest_idx[i]].astype(int), (255, 0, 0), 2)
+                        cv2.line(img, max_p1.astype(int), points[i].astype(int), (255, 0, 255), 2)
+                        cv2.line(img, points[nearest_idx[i]].astype(int), max_p2.astype(int), (255, 0, 255), 2)
+                # px_cl = cluster_to_pixels(cluster)
+                # pts = np.array([px_cl[0], farthest_within_limit(px_cl, px_cl[0], 1*SCAN_PIXELS_PER_METER)[1], px_cl[-1]], dtype=np.int32)
+                # cv2.polylines(bw, [pts], False, (255, 255, 255), 2)
+            print(f'wall_angle: {wall_angle:.2f}, wall_angle_raw: {wall_angle_raw:.2f}, nearest: {nearest:.2f}')
 
             cv2.imshow('scan_poly', img)
             if key == 27:
                 return
-            print(f"FPS: {1/(new_t - t):.1f}")
-            t = new_t
+            # print(f"FPS: {1 / (new_t - t):.1f}")
+            # t = new_t
 
 
 if __name__ == '__main__':
