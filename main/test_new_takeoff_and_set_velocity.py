@@ -1,5 +1,6 @@
 from mavsdk.offboard import OffboardError
-
+import cv2
+()
 from robot.robots import *
 import traceback
 async def main():

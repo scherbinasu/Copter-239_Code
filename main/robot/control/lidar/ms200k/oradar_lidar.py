@@ -1,3 +1,4 @@
+import asyncio
 import ctypes
 import numpy as np
 import time
@@ -87,6 +88,27 @@ class LidarReader:
             raise LidarError("Лидар не запущен. Вызовите start()")
         scan_data = FullScanData()
         ret = _lib.oradar_get_grabfullscan_blocking(
+            self._lidar_ptr,
+            ctypes.byref(scan_data),
+            self.timeout_ms
+        )
+        if not ret:
+            return None
+        num = scan_data.vailtidy_point_num
+        dtype = np.dtype([('angle', 'f4'), ('distance', 'f4'), ('intensity', 'f4')])
+        arr = np.zeros(num, dtype=dtype)
+        for i in range(num):
+            p = scan_data.data[i]
+            arr[i]['angle'] = (p.angle+0)%360
+            arr[i]['distance'] = p.distance / 1000.0
+            arr[i]['intensity'] = p.intensity
+        return arr
+
+    async def get_scan_async(self):
+        if not self._started:
+            raise LidarError("Лидар не запущен. Вызовите start()")
+        scan_data = FullScanData()
+        ret = await asyncio.to_thread(_lib.oradar_get_grabfullscan_blocking,
             self._lidar_ptr,
             ctypes.byref(scan_data),
             self.timeout_ms

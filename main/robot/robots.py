@@ -6,7 +6,6 @@ import numpy as np
 
 # Добавляем текущую директорию в sys.path
 sys.path.append(str(Path(__file__).parent))  # Теперь указываем только родительскую директорию
-
 import control.mavsdk.mavsdk as mavsdk
 import control.camera.camera as camera
 import control.lidar.ms200k.oradar_lidar as lidar
@@ -198,7 +197,7 @@ class Drone:
            vz : вниз (+) / вверх (–)      [м/с]   (в NED вниз – положительно)
            yaw_rate : скорость вращения вокруг вертикальной оси [рад/с]
         """
-        return await mavsdk.set_velocity_body(self.drone, vx, vy, -vz, yaw_rate)
+        return await mavsdk.set_velocity_body(self.drone, vx, vy, vz, yaw_rate)
 
     async def release(self):
         # await self.drone.close()
