@@ -1,10 +1,61 @@
-import math, cv2
-import traceback
-
-from pygments.formatters import img
+import cv2
 
 from robot.control.abstractions import *
 from robot.robots import *
+
+
+def intersection_of_regression_lines(points_arr1, points_arr2, tol=1e-10):
+    """
+    Вычисляет точку пересечения двух прямых, аппроксимирующих два набора точек
+    методом наименьших квадратов (линейная регрессия).
+
+    Параметры
+    ----------
+    points_arr1 : array
+        Координаты точек первой линии.
+    points_arr2 : array
+        Координаты точек второй линии.
+    tol : float, опционально
+        Допуск для проверки равенства угловых коэффициентов (по умолчанию 1e-10).
+
+    Возвращает
+    -------
+    result : tuple
+        кортеж (x, y) – координаты пересечения.
+        Если прямые параллельны и не совпадают, значение None.
+
+    Пример
+    -------
+    > points1 = np.array([[1, 2.1], [2, 3.8], [3, 6.2], [4, 7.9], [5, 10.1]])
+    > points2 = np.array([[1, 10.0], [2, 8.2], [3, 6.1], [4, 4.3], [5, 2.0]])
+    > res = intersection_of_regression_lines(points1, points2)
+    > print(res)
+    """
+    # Преобразуем входные данные в numpy массивы
+    x1, y1 = points_arr1[:, 0], points_arr1[:, 1]
+    x2, y2 = points_arr2[:, 0], points_arr2[:, 1]
+
+    # --- 1. Линейная регрессия для каждой группы точек ---
+    # np.polyfit(x, y, 1) возвращает [наклон, сдвиг]
+    a1, b1 = np.polyfit(x1, y1, 1)
+    a2, b2 = np.polyfit(x2, y2, 1)
+
+    # --- 2. Проверка параллельности и совпадения ---
+    if np.isclose(a1, a2, atol=tol):
+        if np.isclose(b1, b2, atol=tol):
+            # Прямые совпадают
+            return None
+        else:
+            # Параллельны, но не совпадают
+            return None
+
+    # --- 3. Расчёт точки пересечения ---
+    # Решаем уравнение a1*x + b1 = a2*x + b2
+    x_int = (b2 - b1) / (a1 - a2)
+    y_int = a1 * x_int + b1
+
+    return np.array([x_int, y_int])
+
 
 def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
     """
@@ -24,19 +75,19 @@ def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
     clusters = []
     start = 0
     # Синусы и косинусы для всех углов
+    sin_a = -np.sin(np.deg2rad(ang))
     cos_a = np.cos(np.deg2rad(ang))
-    sin_a = np.sin(np.deg2rad(ang))
 
     for i in range(1, n):
         # Расстояние между лучами по теореме косинусов
         d_sq = (dst[i] ** 2 + dst[i - 1] ** 2
-                - 2 * dst[i] * dst[i - 1] * (cos_a[i] * cos_a[i - 1] + sin_a[i] * sin_a[i - 1]))
+                - 2 * dst[i] * dst[i - 1] * (sin_a[i] * sin_a[i - 1] + cos_a[i] * cos_a[i - 1]))
         if d_sq >= distance_threshold ** 2:
             if i - start >= min_cluster_size:
                 # Декартовы координаты в метрах (без SCAN_CENTER)
                 pts = np.column_stack((
-                    dst[start:i] * cos_a[start:i],
-                    dst[start:i] * sin_a[start:i]
+                    dst[start:i] * sin_a[start:i],
+                    dst[start:i] * cos_a[start:i]
                 ))
                 clusters.append(pts)
             start = i
@@ -44,8 +95,8 @@ def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
     # Последний кластер
     if n - start >= min_cluster_size:
         pts = np.column_stack((
-            dst[start:n] * cos_a[start:n],
-            dst[start:n] * sin_a[start:n]
+            dst[start:n] * sin_a[start:n],
+            dst[start:n] * cos_a[start:n]
         ))
         clusters.append(pts)
 
@@ -55,7 +106,7 @@ def cluster_lidar_points_v2(scan, distance_threshold=0.5, min_cluster_size=3):
 def cluster_to_pixels(cluster, drone):
     """Переводит кластер (N,2) в метрах в пиксельные координаты изображения."""
     x_px = drone.SCAN_CENTER[0] + cluster[:, 0] * drone.SCAN_PIXELS_PER_METER
-    y_px = drone.SCAN_CENTER[1] + cluster[:, 1] * drone.SCAN_PIXELS_PER_METER
+    y_px = drone.SCAN_CENTER[1] - cluster[:, 1] * drone.SCAN_PIXELS_PER_METER
     return np.column_stack((x_px, y_px))
 
 
@@ -85,6 +136,7 @@ def get_cluster_extremes(cluster):
     idx_min = np.argmin(adjusted)
     idx_max = np.argmax(adjusted)
     return cluster[idx_min].copy(), cluster[idx_max].copy()
+
 
 def solve_sas(b, c, alpha):
     """
@@ -147,38 +199,6 @@ def angle_wall(scan, angle, range_angle):
 
 
 reg = PID_regulator(1, 0, 0, 1)
-def get_abc(x1, y1, x2, y2):
-    """Convert line to Ax + By + C = 0"""
-    a = y2 - y1
-    b = x1 - x2
-    c = x2 * y1 - x1 * y2
-    return a, b, c
-
-
-def get_intersection(p1, p2, p3, p4):
-    """Get intersection of (x1, y1) -> (x2, y2) and
-    (x3, y3) -> (x4, y4)"""
-    x1, y1 = p1
-    x2, y2 = p2
-    x3, y3 = p3
-    x4, y4 = p4
-    # Ax + By + C = 0
-    a1, b1, c1 = get_abc(x1, y1, x2, y2)
-    a2, b2, c2 = get_abc(x3, y3, x4, y4)
-    # [ A1 B1 ] [ X ] = [ -C1 ]
-    # [ A2 B2 ] [ Y ]   [ -C2 ]
-
-    # Find X and Y
-    det = a1 * b2 - a2 * b1
-    if abs(det) < 1e-12:  # Parallel
-        return None, None
-    inv_det = 1.0 / det
-    # [  B2 -B1 ] [ -C1 ] : det = [ X ]
-    # [ -A2  A1 ] [ -C2 ]         [ Y ]
-    x = inv_det * (b1 * c2 - b2 * c1)
-    y = inv_det * (a2 * c1 - a1 * c2)
-
-    return x, y
 
 
 async def main():
@@ -191,18 +211,25 @@ async def main():
             while True:
                 scan = drone.get_scan()
                 wall_angle, wall_angle_raw, nearest = angle_wall(scan, 180, 45)
-                clusters = cluster_lidar_points_v2(scan, 0.2, 5)
+                clusters = cluster_lidar_points_v2(scan, 0.2, 10)
                 img = np.zeros((drone.SCAN_IMAGE_SIZE, drone.SCAN_IMAGE_SIZE, 3), dtype=np.uint8)
+                bw = img.copy()
                 for cluster in clusters:
-
-                    cl_px = cluster_to_pixels(cluster, drone).astype(np.int32)
+                    px_cl = cluster_to_pixels(cluster, drone)
+                    cl_px = px_cl.astype(np.int32)
                     cv2.polylines(img, [cl_px], False, (255, 0, 255), 2)
-                    left, right = get_cluster_extremes(cluster)
-                    left_px = cluster_to_pixels(left.reshape(1, -1), drone).astype(np.int32)[0]
-                    right_px = cluster_to_pixels(right.reshape(1, -1), drone).astype(np.int32)[0]
-                    cv2.circle(img, tuple(left_px), 5, (255, 0, 0), -1)
-                    cv2.circle(img, tuple(right_px), 5, (255, 0, 0), -1)
+                    left, right = px_cl[0], px_cl[-1]
+                    cv2.circle(img, left.astype(int), 5, (255, 0, 0), -1)
+                    cv2.circle(img, right.astype(int), 5, (255, 0, 0), -1)
+                    if len(cluster) > 10:
+                        mp = intersection_of_regression_lines(px_cl[:5], px_cl[5:])
+                        if mp is not None:
+                            distances = np.linalg.norm(px_cl - mp, axis=1)
+                            cv2.circle(img, px_cl[np.argmin(distances)].astype(int), 5, (255, 255, 0), -1)
+                            pts = np.array([px_cl[0], px_cl[np.argmin(distances)], px_cl[-1]], dtype=np.int32)
+                            cv2.polylines(bw, [pts], False, (255, 255, 255), 2)
                 drone.web.imshow("clusters", img)
+                drone.web.imshow("bw", bw)
                 print(f'wall_angle: {wall_angle:.2f}, wall_angle_raw: {wall_angle_raw:.2f}, nearest: {nearest:.2f}')
         except Exception as e:
             traceback.print_exc()

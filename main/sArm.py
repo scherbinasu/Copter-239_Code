@@ -8,6 +8,7 @@ async def main():
     await drone.arm()
     await asyncio.sleep(0.25)
     await drone.disarm()
+    await drone.release()
 
 
 
