@@ -14,18 +14,18 @@ async def main():
                 try:
                     lidar_data: np.ndarray = drone.lidar.get_scan()
                     new_t = time.time()
-                    print(1/(new_t - t))
+                    # print(1/(new_t - t))
                     t = new_t
-                    # data_bytes = pickle.dumps(lidar_data)
-                    # data = base64.b64encode(data_bytes)
-                    # log.write(data)
-                    # log.write(b' ')
-                    # if t == 0:
-                    #     t = time.time()
-                    # log.write(str(time.time() - t).encode('ascii'))
-                    # log.write(b'\n')
-                    # amount = amount + len(data)
-                    # print('\ramount MB: ' + str(amount/1024/1024), end='\t\t\t')
+                    data_bytes = pickle.dumps(lidar_data)
+                    data = base64.b64encode(data_bytes)
+                    log.write(data)
+                    log.write(b' ')
+                    if t == 0:
+                        t = time.time()
+                    log.write(str(time.time() - t).encode('ascii'))
+                    log.write(b'\n')
+                    amount = amount + len(data)
+                    print('\ramount MB: ' + str(amount/1024/1024), end='\t\t\t')
                 except Exception as e:
                     traceback.print_exc()
                     break

@@ -67,11 +67,11 @@ class Drone:
 
         # Преобразование в декартовы координаты (с зеркалированием, как в основном коде)
         theta = np.deg2rad(angles)
-        x_m = dists * np.sin(theta)
-        y_m = dists * np.cos(theta)
+        x_m = dists * -np.sin(theta)
+        y_m = dists * -np.cos(theta)
 
-        x_px = self.SCAN_CENTER[0] - (x_m * self.SCAN_PIXELS_PER_METER)
-        y_px = self.SCAN_CENTER[1] - (y_m * self.SCAN_PIXELS_PER_METER)
+        x_px = self.SCAN_CENTER[0] + (x_m * self.SCAN_PIXELS_PER_METER)
+        y_px = self.SCAN_CENTER[1] + (y_m * self.SCAN_PIXELS_PER_METER)
         x_idx = np.round(x_px).astype(int)
         y_idx = np.round(y_px).astype(int)
 
@@ -96,7 +96,7 @@ class Drone:
             return
 
         # --- фильтрация и преобразование координат ---
-        angles = (scan['angle']+90) % 360.0  # поворот на 0° (оставили как было)
+        angles = scan['angle']  # поворот на 0° (оставили как было)
         dists = scan['distance']
         intensities = scan['intensity']
         valid = dists >= 0.1
@@ -104,13 +104,13 @@ class Drone:
         dists = dists[valid]
         intensities = intensities[valid]
 
-        # полярные -> декартовы (с уже имеющимся у вас зеркалированием)
+        # полярные -> декартовы
         theta = np.deg2rad(angles)
-        x_m = dists * np.cos(theta)
-        y_m = dists * -np.sin(theta)
+        x_m = dists * -np.sin(theta)
+        y_m = dists * np.cos(theta)
 
         x_px = self.SCAN_CENTER[0] + (x_m * self.SCAN_PIXELS_PER_METER)
-        y_px = self.SCAN_CENTER[1] + (y_m * self.SCAN_PIXELS_PER_METER)
+        y_px = self.SCAN_CENTER[1] - (y_m * self.SCAN_PIXELS_PER_METER)
         x_idx = np.round(x_px).astype(int)
         y_idx = np.round(y_px).astype(int)
 
