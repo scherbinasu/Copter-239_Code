@@ -45,13 +45,15 @@ def create_trackbars(frames_amount):
     cv2.createTrackbar('Scale', 'Trackbars', config.get('scale', 20), 40, lambda x: None)
     cv2.createTrackbar('Tolerance', 'Trackbars', config.get('tolerance', 30), 60, lambda x: None)
     cv2.createTrackbar('Radius', 'Trackbars', config.get('radius', 25), 50, lambda x: None)
+    cv2.createTrackbar('Median window', 'Trackbars', config.get('window', 1), 10, lambda x: None)
 
 
 def update_config():
     config = {'frame': cv2.getTrackbarPos('Frame', 'Trackbars'),
               'scale': cv2.getTrackbarPos('Scale', 'Trackbars'),
               'tolerance': cv2.getTrackbarPos('Tolerance', 'Trackbars'),
-              'radius': cv2.getTrackbarPos('Radius', 'Trackbars')}
+              'radius': cv2.getTrackbarPos('Radius', 'Trackbars'),
+              'window': cv2.getTrackbarPos('Median window', 'Trackbars')}
     with open('config.json', 'w') as h:
         json.dump(config, h)
     return config
@@ -83,37 +85,50 @@ def remove_close_points(lidar_frame, config):
     return lidar_frame[mask]
 
 
-def median_filter(lidar_frame):
-    distances = lidar_frame['distance']
-    left = np.roll(distances, 1)
-    right = np.roll(distances, -1)
-    stack = np.vstack([left, distances, right])
+def median_filter(lidar_frame, config):
+    order = np.argsort(lidar_frame['angle'])
+    result = lidar_frame[order]
+    distances = result['distance']
+    amount = (config['window'] * 2) + 1
+    half = amount // 2
+    stack = [np.roll(distances, i) for i in range(-half, half + 1)]
+    stack = np.vstack(stack)
     filtered = np.median(stack, axis=0)
-    lidar_frame['distance'] = filtered
-    return lidar_frame
+    result['distance'] = filtered
+    return result
 
 
-# -------- MAIN --------
-def render_frame(lidar_frame, config):
-    lidar_frame = median_filter(lidar_frame)
+def make_grid(lidar_frame, config):
+    # Preprocessing
+    lidar_frame = median_filter(lidar_frame, config)
     contour = lidar_to_pixel(lidar_frame, config).reshape((-1, 1, 2))
 
+    # Unknown/free
     img = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
     img[:, :] = UNKNOWN
     cv2.drawContours(img, [contour], 0, FREE, thickness=cv2.FILLED)
 
+    # Walls
     lidar_frame = remove_close_points(lidar_frame, config)
     pixels = lidar_to_pixel(lidar_frame, config)
     pixels_valid = filter_pixels(pixels)
     mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
     mask[pixels_valid[:, 1], pixels_valid[:, 0]] = True
+
+    # Dilate
     pixels_per_meter = WIDTH / config['scale']
     radius = config['radius'] / 100 * pixels_per_meter
     diameter = 2 * round(radius - 0.5) + 1  # Целое нечетное число
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (diameter, diameter))
     mask = cv2.dilate(mask, kernel)
+
     img[mask != 0] = OCCUPIED
-    cv2.imshow('Image', img)
+    return img
+
+
+# -------- MAIN --------
+def show_frame(lidar_frame, config):
+    cv2.imshow('Image', make_grid(lidar_frame, config))
 
 
 def main():
@@ -121,7 +136,7 @@ def main():
     create_trackbars(len(frames))
     while True:
         config = update_config()
-        render_frame(frames[config['frame']], config)
+        show_frame(frames[config['frame']], config)
         key = cv2.waitKey(10)
         if key == 27 or key == ord('q'):
             break
