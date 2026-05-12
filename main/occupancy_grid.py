@@ -56,6 +56,7 @@ def update_config():
               'window': cv2.getTrackbarPos('Median window', 'Trackbars')}
     with open('config.json', 'w') as h:
         json.dump(config, h)
+    config['scale'] = max(config['scale'], 1)
     return config
 
 
@@ -128,7 +129,11 @@ def make_grid(lidar_frame, config):
 
 # -------- MAIN --------
 def show_frame(lidar_frame, config):
-    cv2.imshow('Image', make_grid(lidar_frame, config))
+    grid = make_grid(lidar_frame, config)
+    pixels_per_meter = WIDTH / config['scale']
+    radius = round(10 * pixels_per_meter / 100)
+    cv2.circle(grid, (round(X_CENTER), round(Y_CENTER)), radius, (255, 255, 255), thickness=-1)
+    cv2.imshow('Image', grid)
 
 
 def main():
