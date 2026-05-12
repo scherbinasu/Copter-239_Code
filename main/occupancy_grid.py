@@ -38,7 +38,7 @@ def create_trackbars(frames_amount):
             config = json.load(h)
     except FileNotFoundError:
         pass
-    config['frame'] = min(config['frame'], frames_amount-1)
+    config['frame'] = min(config.get('frame', 0), frames_amount-1)
     cv2.namedWindow('Trackbars', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('Trackbars', 640, 480)
     cv2.createTrackbar('Frame', 'Trackbars', config.get('frame', 0), frames_amount-1, lambda x: None)
