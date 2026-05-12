@@ -1,12 +1,14 @@
 import pickle
 import base64
 import json
+import time
+
 import cv2
 import numpy as np
 
 # IMAGE
-WIDTH =  800
-HEIGHT = 800
+WIDTH =  200
+HEIGHT = 200
 X_CENTER = WIDTH / 2
 Y_CENTER = HEIGHT / 2
 
@@ -14,6 +16,10 @@ Y_CENTER = HEIGHT / 2
 OCCUPIED = (17, 17, 17)
 UNKNOWN = (109, 110, 94)
 FREE = (193, 193, 193)
+
+# OCCUPIED = (0, 0, 0)
+# UNKNOWN = (0, 0, 255)
+# FREE = (255, 255, 255)
 
 
 # -------- DATA --------
@@ -129,11 +135,15 @@ def make_grid(lidar_frame, config):
 
 # -------- MAIN --------
 def show_frame(lidar_frame, config):
+    t = time.time()
     grid = make_grid(lidar_frame, config)
+    dt = 1000 * (time.time() - t)
     pixels_per_meter = WIDTH / config['scale']
+    cm_per_pix = 100 / pixels_per_meter
     radius = round(10 * pixels_per_meter / 100)
     cv2.circle(grid, (round(X_CENTER), round(Y_CENTER)), radius, (255, 255, 255), thickness=-1)
-    cv2.imshow('Image', grid)
+    cv2.putText(grid, f'{dt:.2f} ms; res: {cm_per_pix:.2f} cm', (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
+    cv2.imshow('Image', cv2.resize(grid, None, None, 3, 3, interpolation=cv2.INTER_NEAREST))
 
 
 def main():
