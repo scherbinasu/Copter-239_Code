@@ -7,15 +7,15 @@ import cv2
 import numpy as np
 
 # IMAGE
-WIDTH =  200
+WIDTH  = 200
 HEIGHT = 200
 X_CENTER = WIDTH / 2
 Y_CENTER = HEIGHT / 2
 
 # COLORS
 OCCUPIED = (17, 17, 17)
-UNKNOWN = (109, 110, 94)
-FREE = (193, 193, 193)
+UNKNOWN  = (109, 110, 94)
+FREE     = (193, 193, 193)
 
 # OCCUPIED = (0, 0, 0)
 # UNKNOWN = (0, 0, 255)
@@ -37,13 +37,16 @@ def read_log(filename='lidar_log.txt'):
 
 
 # -------- TRACKBARS --------
-def create_trackbars(frames_amount):
-    config = {}
+def read_config():
     try:
         with open('config.json', 'r') as h:
-            config = json.load(h)
+            return json.load(h)
     except FileNotFoundError:
-        pass
+        return {}
+
+
+def create_trackbars(frames_amount):
+    config = read_config()
     config['frame'] = min(config.get('frame', 0), frames_amount-1)
     cv2.namedWindow('Trackbars', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('Trackbars', 640, 480)
@@ -120,7 +123,7 @@ def make_grid(lidar_frame, config):
     pixels = lidar_to_pixel(lidar_frame, config)
     pixels_valid = filter_pixels(pixels)
     mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
-    mask[pixels_valid[:, 1], pixels_valid[:, 0]] = True
+    mask[pixels_valid[:, 1], pixels_valid[:, 0]] = 255
 
     # Dilate
     pixels_per_meter = WIDTH / config['scale']
@@ -128,6 +131,8 @@ def make_grid(lidar_frame, config):
     diameter = 2 * round(radius - 0.5) + 1  # Целое нечетное число
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (diameter, diameter))
     mask = cv2.dilate(mask, kernel)
+    # dist_map = cv2.distanceTransform(255-mask, cv2.DIST_L2, 0)
+    # img[dist_map <= radius] = OCCUPIED
 
     img[mask != 0] = OCCUPIED
     return img
@@ -147,7 +152,7 @@ def show_frame(lidar_frame, config):
 
 
 def main():
-    frames = read_log()
+    frames = read_log('lidar_log_wall.txt')[184:839]
     create_trackbars(len(frames))
     while True:
         config = update_config()
