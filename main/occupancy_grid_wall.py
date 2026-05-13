@@ -1,35 +1,56 @@
 import math
 import cv2
 import numpy as np
-
 import occupancy_grid
 
 
-def sector_distances(mask, center, pixels_per_meter, sector_deg):
-    cx, cy = center
-    result = {}
+SECTOR_DEG = 5
+MAX_DIST = 200
+
+
+def build_ray_table(sector_deg):
+    table = {}
     for angle_deg in range(0, 360, sector_deg):
         angle = math.radians(angle_deg)
-
         dx = -math.sin(angle)
         dy = -math.cos(angle)
+        coords = np.array([
+            (
+                int(dx * r),
+                int(dy * r)
+            )
+            for r in range(MAX_DIST)
+        ], dtype=np.int16)
+        table[angle_deg] = coords
+    return table
 
-        dist = 200
 
-        for r in range(200):
-            x = int(cx + dx * r)
-            y = int(cy + dy * r)
+RAY_TABLE = build_ray_table(SECTOR_DEG)
 
-            if x < 0 or y < 0 or x >= mask.shape[1] or y >= mask.shape[0]:
-                dist = r
-                break
 
-            if mask[y, x] > 0:
-                dist = r
-                break
-
+def sector_distances(mask, center, pixels_per_meter):
+    cx, cy = center
+    cx, cy = round(cx), round(cy)
+    result = {}
+    h, w = mask.shape
+    for angle_deg, offsets in RAY_TABLE.items():
+        xs = cx + offsets[:, 0]
+        ys = cy + offsets[:, 1]
+        valid = (
+            (xs >= 0) &
+            (ys >= 0) &
+            (xs < w) &
+            (ys < h)
+        )
+        xs = xs[valid]
+        ys = ys[valid]
+        ray = mask[ys, xs]
+        hits = np.flatnonzero(ray)
+        if len(hits):
+            dist = hits[0]
+        else:
+            dist = len(ray)
         result[angle_deg] = dist / pixels_per_meter
-
     return result
 
 
@@ -53,12 +74,10 @@ def main():
     angle = 270
     for line in data:
         grid = occupancy_grid.make_grid(line, config)
-        mask = np.zeros((occupancy_grid.HEIGHT, occupancy_grid.WIDTH), dtype=np.uint8)
-        mask[np.all(grid == occupancy_grid.OCCUPIED, axis=2)] = 255
-        sector_deg = 5
+        mask = (grid[..., 0] == occupancy_grid.OCCUPIED[0]).astype(np.uint8)
         sectors = sector_distances(mask,
                                    (occupancy_grid.X_CENTER, occupancy_grid.Y_CENTER),
-                                   pixels_per_meter, sector_deg)
+                                   pixels_per_meter)
 
         init_angle = angle
         while sectors[angle] > threshold:
@@ -75,12 +94,10 @@ def main():
         draw_angle(grid, angle, (0, 0, 255))
         cv2.circle(grid, (round(occupancy_grid.X_CENTER), round(occupancy_grid.Y_CENTER)), 2, (255, 255, 255), thickness=-1)
 
-        cv2.imshow('Grid', cv2.resize(grid, None, None, 3, 3, cv2.INTER_NEAREST))
+        cv2.imshow('Grid', cv2.resize(grid, None, None, 3, 3, interpolation=cv2.INTER_NEAREST))
         key = cv2.waitKey(30)
         if key == ord('q') or key == 27:
             break
-    writer.release()
-
 
 
 if __name__ == '__main__':
