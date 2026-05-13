@@ -50,7 +50,7 @@ def main():
     config = occupancy_grid.read_config()
     pixels_per_meter = occupancy_grid.WIDTH / config['scale']
     threshold = 30 / 100
-    current_right = 270
+    angle = 270
     for line in data:
         grid = occupancy_grid.make_grid(line, config)
         mask = np.zeros((occupancy_grid.HEIGHT, occupancy_grid.WIDTH), dtype=np.uint8)
@@ -60,36 +60,27 @@ def main():
                                    (occupancy_grid.X_CENTER, occupancy_grid.Y_CENTER),
                                    pixels_per_meter, sector_deg)
 
-        search_range = 60
-        best_angle = None
-        best_dist = 999
-        for da in range(-search_range, search_range + 1, sector_deg):
-            a = (current_right + da) % 360
-            d = sectors[a]
-            if d < best_dist:
-                best_dist = d
-                best_angle = a
-        current_right = best_angle
-
-        forward = (current_right - 90) % 360
-
-        clearance = 0.1
-        ok = True
-        search_range = 10
-        for da in range(-search_range, search_range + 1, sector_deg):
-            a = (forward + da) % 360
-            if sectors[a] < clearance:
-                ok = False
+        init_angle = angle
+        while sectors[angle] > threshold:
+            angle = (angle - 5) % 360
+            if angle == init_angle:
                 break
-        if not ok:
-            current_right -= 90
+        prev_angle = angle
+        while sectors[angle] < threshold:
+            angle = (angle + 5) % 360
+            if angle == prev_angle:
+                angle = init_angle
+                break
 
-        draw_angle(grid, current_right, (0, 255, 0))
+        draw_angle(grid, angle, (0, 0, 255))
+        cv2.circle(grid, (round(occupancy_grid.X_CENTER), round(occupancy_grid.Y_CENTER)), 2, (255, 255, 255), thickness=-1)
 
-        cv2.imshow('Grid', cv2.resize(grid, None, None, 3, 3, interpolation=cv2.INTER_NEAREST))
-        key = cv2.waitKey(10)
+        cv2.imshow('Grid', cv2.resize(grid, None, None, 3, 3, cv2.INTER_NEAREST))
+        key = cv2.waitKey(30)
         if key == ord('q') or key == 27:
             break
+    writer.release()
+
 
 
 if __name__ == '__main__':
