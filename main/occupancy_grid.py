@@ -9,8 +9,8 @@ import numpy as np
 # IMAGE
 WIDTH  = 200
 HEIGHT = 200
-X_CENTER = WIDTH / 2
-Y_CENTER = HEIGHT / 2
+X_CENTER = WIDTH // 2
+Y_CENTER = HEIGHT // 2
 
 # COLORS
 OCCUPIED = (17, 17, 17)
