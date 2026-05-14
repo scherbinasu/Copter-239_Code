@@ -99,7 +99,7 @@ class LidarReader:
         arr = np.zeros(num, dtype=dtype)
         for i in range(num):
             p = scan_data.data[i]
-            arr[i]['angle'] = (p.angle+0)%360
+            arr[i]['angle'] = (90-p.angle)%360
             arr[i]['distance'] = p.distance / 1000.0
             arr[i]['intensity'] = p.intensity
         return arr
