@@ -325,6 +325,101 @@ def angle_wall(scan, angle, range_angle):
     wall_angle = wall_angle_raw + angle - nearest_angle
     return wall_angle, wall_angle_raw, nearest
 
+
+def point_line_distance(point, line_start, line_end):
+    """
+    Расстояние от точки до линии.
+    """
+    line = line_end - line_start
+    line_len = np.linalg.norm(line)
+
+    if line_len < 1e-8:
+        return np.linalg.norm(point - line_start)
+
+    return np.abs(np.cross(line, point - line_start)) / line_len
+
+
+def split_and_merge(points, threshold=0.05, min_points=2):
+    """
+    Split-and-merge для 2D lidar points.
+
+    Args:
+        points: np.ndarray shape (N, 2)
+        threshold: max distance to line before split
+        min_points: minimum points in segment
+
+    Returns:
+        list of segments [(start_point, end_point), ...]
+    """
+
+    segments = []
+
+    def recursive_split(pts):
+        if len(pts) < min_points:
+            return
+
+        start = pts[0]
+        end = pts[-1]
+
+        # Ищем точку с максимальным отклонением
+        max_dist = -1
+        split_idx = -1
+
+        for i in range(1, len(pts) - 1):
+            dist = point_line_distance(pts[i], start, end)
+
+            if dist > max_dist:
+                max_dist = dist
+                split_idx = i
+
+        # Если линия плохая — делим
+        if max_dist > threshold:
+            recursive_split(pts[:split_idx + 1])
+            recursive_split(pts[split_idx:])
+        else:
+            segments.append((start, end))
+
+    recursive_split(points)
+
+    return segments
+
+
+def render_segments(img, segments, cartesian_to_pixel,
+                    color=(0, 255, 0),
+                    thickness=2,
+                    draw_points=True):
+    """
+    Рисует сегменты split-and-merge на изображении.
+
+    Args:
+        img: OpenCV image
+        segments: list[(start, end)]
+        cartesian_to_pixel: function(x, y) -> (col, row)
+        color: line color
+        thickness: line thickness
+        draw_points: draw segment endpoints
+    """
+
+    for start, end in segments:
+        x1, y1 = start
+        x2, y2 = end
+
+        col1, row1 = cartesian_to_pixel(x1, y1)
+        col2, row2 = cartesian_to_pixel(x2, y2)
+
+        cv2.line(
+            img,
+            (int(col1), int(row1)),
+            (int(col2), int(row2)),
+            color,
+            thickness
+        )
+
+        if draw_points:
+            cv2.circle(img, (int(col1), int(row1)), 4, (0, 0, 255), -1)
+            cv2.circle(img, (int(col2), int(row2)), 4, (255, 0, 0), -1)
+
+
 # ---------------------- Главный цикл ----------------------
 def main():
     with open('lidar_log.txt', 'rb') as f:
@@ -332,58 +427,15 @@ def main():
             data, new_t = parse_line(line)
             key = cv2.waitKey(10)
             scan, img = get_scan(data)
-
-            wall_angle, wall_angle_raw, nearest = angle_wall(scan, 180, 45)
             clusters = cluster_lidar_points_v2(scan, 0.2, 5)
-
-            edge = groups_first_last(clusters)                     # (G,2,2) метры
-            nearest_idx, dists = nearest_from_other_group(edge)    # индексы и расстояния в метрах
-            points = cluster_to_pixels(edge.reshape(-1, 2))        # пиксели
-
-            tmp_old_points_dual_del = []
-            for i in range(len(points)):
-                if abs(dists[i] - 0.7) < 0.1 and (i, nearest_idx[i]) not in tmp_old_points_dual_del:
-                    tmp_old_points_dual_del.append((nearest_idx[i], i))
-                    print(f"Точка {i} {points[i]} -> "
-                          f"ближайшая {nearest_idx[i]} {points[nearest_idx[i]]}, "
-                          f"расстояние = {dists[i]:.3f}")
-
-                    max_p1 = farthest_within_limit(
-                        cluster_to_pixels(clusters[i // 2]),
-                        points[i],
-                        0.1 * SCAN_PIXELS_PER_METER
-                    )[1]
-                    max_p2 = farthest_within_limit(
-                        cluster_to_pixels(clusters[nearest_idx[i] // 2]),
-                        points[nearest_idx[i]],
-                        0.15 * SCAN_PIXELS_PER_METER
-                    )[1]
-
-                    if max_p1 is None or max_p2 is None:
-                        continue
-
-                    base_angle = find_triangle_angles(points[i], points[nearest_idx[i]])
-                    angle1 = find_triangle_angles(max_p1, points[i])
-                    angle2 = find_triangle_angles(max_p2, points[nearest_idx[i]])
-                    mind_angle = (base_angle + angle1 + angle2) / 3
-                    mind_mind_angle = sum([abs(base_angle - mind_angle),
-                                           abs(angle1 - mind_angle),
-                                           abs(angle2 - mind_angle)]) / 3
-
-                    dist_p1 = math.dist(max_p1, points[i])
-                    dist_p2 = math.dist(max_p2, points[nearest_idx[i]])
-                    norm_dist = (dist_p2 - dist_p1) / (dist_p1 + dist_p2)
-
-                    print(mind_angle, mind_mind_angle, norm_dist)
-                    if mind_mind_angle < 5 and norm_dist < 0.35:
-                        cv2.line(img, points[i].astype(int), points[nearest_idx[i]].astype(int),
-                                 (255, 0, 0), 2)
-                        cv2.line(img, max_p1.astype(int), points[i].astype(int),
-                                 (255, 0, 255), 2)
-                        cv2.line(img, points[nearest_idx[i]].astype(int), max_p2.astype(int),
-                                 (255, 0, 255), 2)
-
-            print(f'wall_angle: {wall_angle:.2f}, wall_angle_raw: {wall_angle_raw:.2f}, nearest: {nearest:.2f}')
+            print(clusters)
+            for i in clusters:
+                for px in i:
+                    col, row = cartesian_to_pixel(px[0], px[1])
+                    row, col = round(row), round(col)
+                    img[row, col] = (0, 0, 255)
+                segments = split_and_merge(i, 0.2, 2)
+                render_segments(img, segments, cartesian_to_pixel)
             cv2.imshow('scan_poly', img)
             if key == 27:
                 return
