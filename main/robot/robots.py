@@ -217,6 +217,8 @@ class Drone:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.release()
+        if exc_type:
+            traceback.print_exception(exc_type, exc_val, exc_tb)
 
     async def set_param(self, name: str, value: int | float, retries: int = 2):
         """Устанавливает параметр автопилота с повторными попытками."""
