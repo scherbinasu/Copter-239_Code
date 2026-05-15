@@ -66,7 +66,9 @@ async def takeoff_n_meters(drone: System, n: float):
 
     print(f"Взлетаем на {n} метров...")
     await drone.action.set_takeoff_altitude(n)
+    print('Set altitude ok')
     await drone.action.takeoff()
+    print('Takeoff success')
 
     async for position in drone.telemetry.position():
         current_alt = position.relative_altitude_m

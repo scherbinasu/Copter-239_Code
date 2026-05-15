@@ -9,7 +9,7 @@ import numpy as np
 
 # Добавляем текущую директорию в sys.path
 sys.path.append(str(Path(__file__).parent))  # Теперь указываем только родительскую директорию
-import control.mavsdk.mavsdk as mavsdk
+import control.mavsdk.my_mavsdk as mavsdk
 import control.camera.camera as camera
 import control.lidar.ms200k.oradar_lidar as lidar
 import control.web.webGUI as webGUI
