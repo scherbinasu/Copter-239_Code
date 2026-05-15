@@ -93,7 +93,7 @@ class Drone:
         img – пустое HSV-изображение (np.uint8).
         """
         if len(scan) == 0:
-            return
+            return None
 
         # --- фильтрация и преобразование координат ---
         angles = scan['angle']  # поворот на 0° (оставили как было)

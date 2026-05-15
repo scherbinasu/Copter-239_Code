@@ -3,7 +3,10 @@ from robot.robots import *
 import traceback, base64, pickle
 import numpy as np
 import time
-
+from mavsdk.offboard import OffboardError
+import cv2
+from robot.robots import *
+import traceback
 
 async def main():
     t = 0
@@ -13,9 +16,9 @@ async def main():
             while True:
                 try:
                     lidar_data: np.ndarray = drone.lidar.get_scan()
-                    new_t = time.time()
+                    # new_t = time.time()
                     # print(1/(new_t - t))
-                    t = new_t
+                    # t = new_t
                     data_bytes = pickle.dumps(lidar_data)
                     data = base64.b64encode(data_bytes)
                     log.write(data)
